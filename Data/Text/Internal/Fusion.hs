@@ -63,6 +63,8 @@ import Data.Text.Internal.Fusion.Types
 import Data.Text.Internal.Fusion.Size
 import qualified Data.Text.Internal as I
 import qualified Data.Text.Internal.Encoding.Utf16 as U16
+import qualified Data.Text.Internal.Encoding.Utf8 as U8
+
 
 default(Int)
 
@@ -72,12 +74,10 @@ stream (Text arr off len) = Stream next off (betweenSize (len `shiftR` 1) len)
     where
       !end = off+len
       next !i
-          | i >= end                   = Done
-          | n >= 0xD800 && n <= 0xDBFF = Yield (U16.chr2 n n2) (i + 2)
-          | otherwise                  = Yield (unsafeChr n) (i + 1)
+          | i >= end  = Done
+          | otherwise = U8.decodeCharIndex (\c s -> Yield c (i + s)) idx i
           where
-            n  = A.unsafeIndex arr i
-            n2 = A.unsafeIndex arr (i + 1)
+            idx = A.unsafeIndex arr
 {-# INLINE [0] stream #-}
 
 -- | /O(n)/ Convert a 'Text' into a 'Stream Char', but iterate
@@ -87,12 +87,10 @@ reverseStream (Text arr off len) = Stream next (off+len-1) (betweenSize (len `sh
     where
       {-# INLINE next #-}
       next !i
-          | i < off                    = Done
-          | n >= 0xDC00 && n <= 0xDFFF = Yield (U16.chr2 n2 n) (i - 2)
-          | otherwise                  = Yield (unsafeChr n) (i - 1)
-          where
-            n  = A.unsafeIndex arr i
-            n2 = A.unsafeIndex arr (i - 1)
+          | i < off   = Done
+          | otherwise = U8.reverseDecodeCharIndex (\c w -> Yield c (i - w)) idx i
+        where
+          idx = A.unsafeIndex arr
 {-# INLINE [0] reverseStream #-}
 
 -- | /O(n)/ Convert a 'Stream Char' into a 'Text'.
@@ -113,7 +111,7 @@ unstream (Stream next0 s0 len) = runText $ \done -> do
                 Skip si'    -> encode si' di
                 Yield c si'
                     -- simply check for the worst case
-                    | maxi < di + 1 -> realloc si di
+                    | maxi < di + U8.charTailBytes c -> realloc si di
                     | otherwise -> do
                             n <- unsafeWrite arr di c
                             encode si' (di + n)
@@ -157,20 +155,12 @@ reverse (Stream next s len0)
                        A.copyM marr' (newLen-len) marr 0 len
                        write s1 (len+i) newLen marr'
                      | otherwise -> write s1 i len marr
-            where n = ord x
-                  least | n < 0x10000 = 0
-                        | otherwise   = 1
-                  m = n - 0x10000
-                  lo = fromIntegral $ (m `shiftR` 10) + 0xD800
-                  hi = fromIntegral $ (m .&. 0x3FF) + 0xDC00
-                  write t j l mar
-                      | n < 0x10000 = do
-                          A.unsafeWrite mar j (fromIntegral n)
-                          loop t (j-1) l mar
-                      | otherwise = do
-                          A.unsafeWrite mar (j-1) lo
-                          A.unsafeWrite mar j hi
-                          loop t (j-2) l mar
+            where
+              n = ord x
+              least = U8.charTailBytes x
+              write t j l mar = do
+                _ <- unsafeWrite mar (j-least) x
+                loop t (j-least-1) l mar
 {-# INLINE [0] reverse #-}
 
 -- | /O(n)/ Perform the equivalent of 'scanr' over a list, only with
@@ -238,7 +228,7 @@ mapAccumL f z0 (Stream next0 s0 len) = (nz, I.text na 0 nl)
                                outer arr' top' z s i
                 | otherwise -> do d <- unsafeWrite arr i c
                                   loop z' s' (i+d)
-                where (z',c) = f z x
-                      j | ord c < 0x10000 = i
-                        | otherwise       = i + 1
+                where
+                  (z',c) = f z x
+                  j = i + U8.charTailBytes c
 {-# INLINE [0] mapAccumL #-}

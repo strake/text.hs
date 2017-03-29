@@ -58,21 +58,19 @@ import qualified Data.Text.Array as A
 
 -- | A space efficient, packed, unboxed Unicode text type.
 data Text = Text
-    {-# UNPACK #-} !A.Array          -- payload (Word16 elements)
-    {-# UNPACK #-} !Int              -- offset (units of Word16, not Char)
-    {-# UNPACK #-} !Int              -- length (units of Word16, not Char)
+    {-# UNPACK #-} !A.Array          -- payload (ByteArray)
+    {-# UNPACK #-} !Int              -- offset (in bytes)
+    {-# UNPACK #-} !Int              -- length (in bytes, not characters)
     deriving (Typeable)
 
 -- | Smart constructor.
 text_ :: A.Array -> Int -> Int -> Text
 text_ arr off len =
 #if defined(ASSERTS)
-  let c    = A.unsafeIndex arr off
-      alen = A.length arr
+  let alen = A.length arr
   in assert (len >= 0) .
      assert (off >= 0) .
-     assert (alen == 0 || len == 0 || off < alen) .
-     assert (len == 0 || c < 0xDC00 || c > 0xDFFF) $
+     assert (alen == 0 || len == 0 || off < alen) $
 #endif
      Text arr off len
 {-# INLINE text_ #-}
@@ -170,13 +168,13 @@ infixl 7 `mul32`
 
 -- $internals
 --
--- Internally, the 'Text' type is represented as an array of 'Word16'
--- UTF-16 code units. The offset and length fields in the constructor
+-- Internally, the 'Text' type is represented as an array of 'Word8'
+-- UTF-8 code units. The offset and length fields in the constructor
 -- are in these units, /not/ units of 'Char'.
 --
 -- Invariants that all functions must maintain:
 --
--- * Since the 'Text' type uses UTF-16 internally, it cannot represent
+-- * Since the 'Text' type uses UTF-8 internally, it cannot represent
 --   characters in the reserved surrogate code point range U+D800 to
 --   U+DFFF. To maintain this invariant, the 'safe' function maps
 --   'Char' values in this range to the replacement character (U+FFFD,

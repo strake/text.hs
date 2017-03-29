@@ -120,39 +120,11 @@ decodeASCII = decodeUtf8
 -- 'decodeLatin1' is semantically equivalent to
 --  @Data.Text.pack . Data.ByteString.Char8.unpack@
 decodeLatin1 :: ByteString -> Text
-decodeLatin1 (PS fp off len) = text a 0 len
- where
-  a = A.run (A.new len >>= unsafeIOToST . go)
-  go dest = withForeignPtr fp $ \ptr -> do
-    c_decode_latin1 (A.maBA dest) (ptr `plusPtr` off) (ptr `plusPtr` (off+len))
-    return dest
+decodeLatin1 s = F.unstream (E.streamASCII s)
 
 -- | Decode a 'ByteString' containing UTF-8 encoded text.
 decodeUtf8With :: OnDecodeError -> ByteString -> Text
-decodeUtf8With onErr (PS fp off len) = runText $ \done -> do
-  let go dest = withForeignPtr fp $ \ptr ->
-        with (0::CSize) $ \destOffPtr -> do
-          let end = ptr `plusPtr` (off + len)
-              loop curPtr = do
-                curPtr' <- c_decode_utf8 (A.maBA dest) destOffPtr curPtr end
-                if curPtr' == end
-                  then do
-                    n <- peek destOffPtr
-                    unsafeSTToIO (done dest (fromIntegral n))
-                  else do
-                    x <- peek curPtr'
-                    case onErr desc (Just x) of
-                      Nothing -> loop $ curPtr' `plusPtr` 1
-                      Just c -> do
-                        destOff <- peek destOffPtr
-                        w <- unsafeSTToIO $
-                             unsafeWrite dest (fromIntegral destOff) (safe c)
-                        poke destOffPtr (destOff + fromIntegral w)
-                        loop $ curPtr' `plusPtr` 1
-          loop (ptr `plusPtr` off)
-  (unsafeIOToST . go) =<< A.new len
- where
-  desc = "Data.Text.Internal.Encoding.decodeUtf8: Invalid UTF-8 stream"
+decodeUtf8With onErr bs = F.unstream (E.streamUtf8 onErr bs)
 {- INLINE[0] decodeUtf8With #-}
 
 -- $stream
@@ -320,72 +292,12 @@ encodeUtf8Builder = encodeUtf8BuilderEscaped (BP.liftFixedToBounded BP.word8)
 -- TODO: Extend documentation with references to source code in @blaze-html@
 -- or @aeson@ that uses this function.
 encodeUtf8BuilderEscaped :: BP.BoundedPrim Word8 -> Text -> B.Builder
-encodeUtf8BuilderEscaped be =
-    -- manual eta-expansion to ensure inlining works as expected
-    \txt -> B.builder (mkBuildstep txt)
-  where
-    bound = max 4 $ BP.sizeBound be
-
-    mkBuildstep (Text arr off len) !k =
-        outerLoop off
-      where
-        iend = off + len
-
-        outerLoop !i0 !br@(B.BufferRange op0 ope)
-          | i0 >= iend       = k br
-          | outRemaining > 0 = goPartial (i0 + min outRemaining inpRemaining)
-          -- TODO: Use a loop with an integrated bound's check if outRemaining
-          -- is smaller than 8, as this will save on divisions.
-          | otherwise        = return $ B.bufferFull bound op0 (outerLoop i0)
-          where
-            outRemaining = (ope `minusPtr` op0) `div` bound
-            inpRemaining = iend - i0
-
-            goPartial !iendTmp = go i0 op0
-              where
-                go !i !op
-                  | i < iendTmp = case A.unsafeIndex arr i of
-                      w | w <= 0x7F -> do
-                            BP.runB be (fromIntegral w) op >>= go (i + 1)
-                        | w <= 0x7FF -> do
-                            poke8 0 $ (w `shiftR` 6) + 0xC0
-                            poke8 1 $ (w .&. 0x3f) + 0x80
-                            go (i + 1) (op `plusPtr` 2)
-                        | 0xD800 <= w && w <= 0xDBFF -> do
-                            let c = ord $ U16.chr2 w (A.unsafeIndex arr (i+1))
-                            poke8 0 $ (c `shiftR` 18) + 0xF0
-                            poke8 1 $ ((c `shiftR` 12) .&. 0x3F) + 0x80
-                            poke8 2 $ ((c `shiftR` 6) .&. 0x3F) + 0x80
-                            poke8 3 $ (c .&. 0x3F) + 0x80
-                            go (i + 2) (op `plusPtr` 4)
-                        | otherwise -> do
-                            poke8 0 $ (w `shiftR` 12) + 0xE0
-                            poke8 1 $ ((w `shiftR` 6) .&. 0x3F) + 0x80
-                            poke8 2 $ (w .&. 0x3F) + 0x80
-                            go (i + 1) (op `plusPtr` 3)
-                  | otherwise =
-                      outerLoop i (B.BufferRange op ope)
-                  where
-                    poke8 j v = poke (op `plusPtr` j) (fromIntegral v :: Word8)
+encodeUtf8BuilderEscaped be = mempty
 
 -- | Encode text using UTF-8 encoding.
 encodeUtf8 :: Text -> ByteString
-encodeUtf8 (Text arr off len)
-  | len == 0  = B.empty
-  | otherwise = unsafeDupablePerformIO $ do
-  fp <- mallocByteString (len*4)
-  withForeignPtr fp $ \ptr ->
-    with ptr $ \destPtr -> do
-      c_encode_utf8 destPtr (A.aBA arr) (fromIntegral off) (fromIntegral len)
-      newDest <- peek destPtr
-      let utf8len = newDest `minusPtr` ptr
-      if utf8len >= len `shiftR` 1
-        then return (PS fp 0 utf8len)
-        else do
-          fp' <- mallocByteString utf8len
-          withForeignPtr fp' $ \ptr' -> do
-            memcpy ptr' ptr (fromIntegral utf8len)
-            return (PS fp' 0 utf8len)
+encodeUtf8 (Text arr off len) =
+  B.unsafeCreate len (\op -> A.copyToPtr op 0 arr off len)
 
 -- | Decode text from little endian UTF-16 encoding.
 decodeUtf16LEWith :: OnDecodeError -> ByteString -> Text
@@ -471,9 +383,3 @@ foreign import ccall unsafe "_hs_text_decode_utf8_state" c_decode_utf8_with_stat
     :: MutableByteArray# s -> Ptr CSize
     -> Ptr (Ptr Word8) -> Ptr Word8
     -> Ptr CodePoint -> Ptr DecoderState -> IO (Ptr Word8)
-
-foreign import ccall unsafe "_hs_text_decode_latin1" c_decode_latin1
-    :: MutableByteArray# s -> Ptr Word8 -> Ptr Word8 -> IO ()
-
-foreign import ccall unsafe "_hs_text_encode_utf8" c_encode_utf8
-    :: Ptr (Ptr Word8) -> ByteArray# -> CSize -> CSize -> IO ()

@@ -290,7 +290,7 @@ import Text.Printf (PrintfArg, formatArg, formatString)
 -- \"Performs replacement on invalid scalar values\".
 --
 -- (One reason for this policy of replacement is that internally, a
--- 'Text' value is represented as packed UTF-16 data. Values in the
+-- 'Text' value is represented as packed UTF-8 data. Values in the
 -- range U+D800 through U+DFFF are used by UTF-16 to denote surrogate
 -- code points, and so cannot be represented. The functions replace
 -- invalid scalar values, instead of dropping them, as a security
@@ -303,13 +303,13 @@ equal Empty _     = False
 equal _ Empty     = False
 equal (Chunk a as) (Chunk b bs) =
     case compare lenA lenB of
-      LT -> a == (T.takeWord16 lenA b) &&
-            as `equal` Chunk (T.dropWord16 lenA b) bs
+      LT -> a == (T.takeWord8 lenA b) &&
+            as `equal` Chunk (T.dropWord8 lenA b) bs
       EQ -> a == b && as `equal` bs
-      GT -> T.takeWord16 lenB a == b &&
-            Chunk (T.dropWord16 lenB a) as `equal` bs
-  where lenA = T.lengthWord16 a
-        lenB = T.lengthWord16 b
+      GT -> T.takeWord8 lenB a == b &&
+            Chunk (T.dropWord8 lenB a) as `equal` bs
+  where lenA = T.lengthWord8 a
+        lenB = T.lengthWord8 b
 
 instance Eq Text where
     (==) = equal
@@ -1110,9 +1110,9 @@ dropEnd n t0
                         T.dropEnd (fromIntegral m) t : ts
           where l = fromIntegral (T.length t)
 
--- | /O(n)/ 'dropWords' @n@ returns the suffix with @n@ 'Word16'
+-- | /O(n)/ 'dropWords' @n@ returns the suffix with @n@ 'Word8'
 -- values dropped, or the empty 'Text' if @n@ is greater than the
--- number of 'Word16' values present.
+-- number of 'Word8' values present.
 dropWords :: Int64 -> Text -> Text
 dropWords i t0
     | i <= 0    = t0
@@ -1240,7 +1240,7 @@ splitAt = loop
              where len = fromIntegral (T.length t)
 
 -- | /O(n)/ 'splitAtWord' @n t@ returns a strict pair whose first
--- element is a prefix of @t@ whose chunks contain @n@ 'Word16'
+-- element is a prefix of @t@ whose chunks contain @n@ 'Word8'
 -- values, and whose second is the remainder of the string.
 splitAtWord :: Int64 -> Text -> PairS Text Text
 splitAtWord _ Empty = empty :*: empty
