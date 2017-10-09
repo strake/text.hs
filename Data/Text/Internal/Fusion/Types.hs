@@ -76,15 +76,15 @@ instance (Ord a) => Ord (Stream a) where
 -- small or too large.
 --
 -- The size hint tries to track the UTF-8 code units in a stream,
--- but often counts the number of characters instead.  It can easily
+-- but often counts the number of code points instead.  It can easily
 -- undercount if, for instance, a transformed stream contains astral
--- plane characters (those above 0x10000).
+-- plane code points (those above 0x10000).
 
 data Stream a =
     forall s. Stream
     (s -> Step s a)             -- stepper function
     !s                          -- current state
-    !Size                       -- size hint
+    !Size                       -- size hint in code units
 
 -- | /O(n)/ Determines if two streams are equal.
 eq :: (Eq a) => Stream a -> Stream a -> Bool
