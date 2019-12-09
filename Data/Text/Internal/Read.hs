@@ -21,6 +21,7 @@ module Data.Text.Internal.Read
 import Control.Applicative as App (Applicative(..))
 import Control.Arrow (first)
 import Control.Monad (ap)
+import Control.Monad.Fail (MonadFail (..))
 import Data.Char (ord)
 
 type IReader t a = t -> Either String (a,t)
@@ -28,9 +29,7 @@ type IReader t a = t -> Either String (a,t)
 newtype IParser t a = P {
       runP :: IReader t a
     }
-
-instance Functor (IParser t) where
-    fmap f m = P $ fmap (first f) . runP m
+  deriving (Functor)
 
 instance Applicative (IParser t) where
     pure a = P $ \t -> Right (a,t)
@@ -43,6 +42,8 @@ instance Monad (IParser t) where
                            Left err     -> Left err
                            Right (a,t') -> runP (k a) t'
     {-# INLINE (>>=) #-}
+
+instance MonadFail (IParser t) where
     fail msg = P $ \_ -> Left msg
 
 data T = T !Integer !Int
