@@ -28,9 +28,7 @@ type IReader t a = t -> Either String (a,t)
 newtype IParser t a = P {
       runP :: IReader t a
     }
-
-instance Functor (IParser t) where
-    fmap f m = P $ fmap (first f) . runP m
+  deriving (Functor)
 
 instance Applicative (IParser t) where
     pure a = P $ \t -> Right (a,t)

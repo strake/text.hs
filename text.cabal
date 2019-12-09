@@ -89,6 +89,8 @@ library
   c-sources:    cbits/cbits.c
   include-dirs: include
   default-language: Haskell2010
+  default-extensions:
+    DeriveFunctor
 
   exposed-modules:
     Data.Text
