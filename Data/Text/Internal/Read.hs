@@ -21,6 +21,7 @@ module Data.Text.Internal.Read
 import Control.Applicative as App (Applicative(..))
 import Control.Arrow (first)
 import Control.Monad (ap)
+import Control.Monad.Fail (MonadFail (..))
 import Data.Char (ord)
 
 type IReader t a = t -> Either String (a,t)
