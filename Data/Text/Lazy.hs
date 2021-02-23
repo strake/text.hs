@@ -214,6 +214,7 @@ import Data.Char (isSpace)
 import Data.Data (Data(gfoldl, toConstr, gunfold, dataTypeOf), constrIndex,
                   Constr, mkConstr, DataType, mkDataType, Fixity(Prefix))
 import Data.Binary (Binary(get, put))
+import Data.Hashable (Hashable (..))
 import Data.Monoid (Monoid(..))
 #if MIN_VERSION_base(4,9,0)
 import Data.Semigroup (Semigroup(..))
@@ -389,6 +390,9 @@ instance Binary Text where
       case decodeUtf8' bs of
         P.Left exn -> P.fail (P.show exn)
         P.Right a -> P.return a
+
+instance Hashable Text where
+    hashWithSalt = foldlChunks hashWithSalt
 
 -- | This instance preserves data abstraction at the cost of inefficiency.
 -- We omit reflection services for the sake of data abstraction.

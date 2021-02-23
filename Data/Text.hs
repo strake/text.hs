@@ -218,6 +218,7 @@ import Control.Monad.ST (ST)
 import qualified Data.Text.Array as A
 import qualified Data.List as L
 import Data.Binary (Binary(get, put))
+import Data.Hashable (Hashable (..), hashByteArrayWithSalt)
 import Data.Monoid (Monoid(..))
 #if MIN_VERSION_base(4,9,0)
 import Data.Semigroup (Semigroup(..))
@@ -392,6 +393,9 @@ instance Binary Text where
       case decodeUtf8' bs of
         P.Left exn -> P.fail (P.show exn)
         P.Right a -> P.return a
+
+instance Hashable Text where
+    hashWithSalt salt (Text arr off len) = hashByteArrayWithSalt (A.aBA arr) off len salt
 
 -- | This instance preserves data abstraction at the cost of inefficiency.
 -- We omit reflection services for the sake of data abstraction.
