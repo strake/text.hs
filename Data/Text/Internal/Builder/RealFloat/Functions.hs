@@ -15,14 +15,10 @@ module Data.Text.Internal.Builder.RealFloat.Functions
     ) where
 
 roundTo :: Int -> [Int] -> (Int,[Int])
-
-#if MIN_VERSION_base(4,6,0)
-
 roundTo d is =
   case f d True is of
     x@(0,_) -> x
-    (1,xs)  -> (1, 1:xs)
-    _       -> error "roundTo: bad Value"
+    (n,xs)  -> (n, 1:xs)
  where
   b2 = base `quot` 2
 
@@ -36,22 +32,3 @@ roundTo d is =
        (c,ds) = f (n-1) (even i) xs
        i'     = c + i
   base = 10
-
-#else
-
-roundTo d is =
-  case f d is of
-    x@(0,_) -> x
-    (1,xs)  -> (1, 1:xs)
-    _       -> error "roundTo: bad Value"
- where
-  f n []     = (0, replicate n 0)
-  f 0 (x:_)  = (if x >= 5 then 1 else 0, [])
-  f n (i:xs)
-     | i' == 10  = (1,0:ds)
-     | otherwise = (0,i':ds)
-      where
-       (c,ds) = f (n-1) xs
-       i'     = c + i
-
-#endif

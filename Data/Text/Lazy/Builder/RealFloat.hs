@@ -17,8 +17,13 @@ module Data.Text.Lazy.Builder.RealFloat
     , formatRealFloat
     ) where
 
+import Control.Applicative (empty)
 import Data.Array.Base (unsafeAt)
 import Data.Array.IArray
+import qualified Data.DList as DL
+import qualified Data.DList.DNonEmpty as DNE
+import Data.Foldable (toList)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text.Internal.Builder.Functions ((<>), i2d)
 import Data.Text.Lazy.Builder.Int (decimal)
 import Data.Text.Internal.Builder.RealFloat.Functions (roundTo)
@@ -38,6 +43,8 @@ data FPFormat = Exponent
               -- @9,999,999@, and scientific notation otherwise.
                 deriving (Enum, Read, Show)
 
+data FPFormat' = Exponent' | Fixed' deriving (Enum, Read, Show)
+
 -- | Show a signed 'RealFloat' value to full precision,
 -- using standard decimal notation for arguments whose absolute value lies
 -- between @0.1@ and @9,999,999@, and scientific notation otherwise.
@@ -56,63 +63,66 @@ formatRealFloat :: (RealFloat a) =>
 formatRealFloat fmt decs x
    | isNaN x                   = "NaN"
    | isInfinite x              = if x < 0 then "-Infinity" else "Infinity"
-   | x < 0 || isNegativeZero x = singleton '-' <> doFmt fmt (floatToDigits (-x))
-   | otherwise                 = doFmt fmt (floatToDigits x)
+   | x < 0 || isNegativeZero x = singleton '-' <> x'
+   | otherwise                 = x'
  where
-  doFmt format (is, e) =
-    let ds = map i2d is in
-    case format of
-     Generic ->
-      doFmt (if e < 0 || e > 7 then Exponent else Fixed)
-            (is,e)
-     Exponent ->
+  doFmt' format' (is, e) =
+    let ds = i2d <$> is in
+    case format' of
+     Exponent' ->
       case decs of
        Nothing ->
         let show_e' = decimal (e-1) in
         case ds of
-          "0"     -> "0.0e0"
-          [d]     -> singleton d <> ".0e" <> show_e'
-          (d:ds') -> singleton d <> singleton '.' <> fromString ds' <> singleton 'e' <> show_e'
-          []      -> error "formatRealFloat/doFmt/Exponent: []"
+          '0':|[] -> "0.0e0"
+          d:|[]   -> singleton d <> ".0e" <> show_e'
+          d:|ds'  -> singleton d <> singleton '.' <> fromString ds' <> singleton 'e' <> show_e'
        Just dec ->
         let dec' = max dec 1 in
         case is of
-         [0] -> "0." <> fromText (T.replicate dec' "0") <> "e0"
+         0:|[] -> "0." <> fromText (T.replicate dec' "0") <> "e0"
          _ ->
           let
-           (ei,is') = roundTo (dec'+1) is
+           (ei,is') = roundTo (dec'+1) (toList is)
            (d:ds') = map i2d (if ei > 0 then init is' else is')
           in
           singleton d <> singleton '.' <> fromString ds' <> singleton 'e' <> decimal (e-1+ei)
-     Fixed ->
+     Fixed' ->
       let
        mk0 ls = case ls of { "" -> "0" ; _ -> fromString ls}
       in
       case decs of
        Nothing
-          | e <= 0    -> "0." <> fromText (T.replicate (-e) "0") <> fromString ds
+          | e <= 0    -> "0." <> fromText (T.replicate (-e) "0") <> fromString (toList ds)
           | otherwise ->
              let
                 f 0 s    rs  = mk0 (reverse s) <> singleton '.' <> mk0 rs
                 f n s    ""  = f (n-1) ('0':s) ""
                 f n s (r:rs) = f (n-1) (r:s) rs
              in
-                f e "" ds
+                f e "" (toList ds)
        Just dec ->
         let dec' = max dec 0 in
         if e >= 0 then
          let
-          (ei,is') = roundTo (dec' + e) is
+          (ei,is') = roundTo (dec' + e) (toList is)
           (ls,rs)  = splitAt (e+ei) (map i2d is')
          in
          mk0 ls <> (if null rs then "" else singleton '.' <> fromString rs)
         else
          let
-          (ei,is') = roundTo dec' (replicate (-e) 0 ++ is)
+          (ei,is') = roundTo dec' (replicate (-e) 0 ++ toList is)
           d:ds' = map i2d (if ei > 0 then is' else 0:is')
          in
          singleton d <> (if null ds' then "" else singleton '.' <> fromString ds')
-
+  {-# INLINE doFmt #-}
+  doFmt format (is, e) = doFmt' (case format of
+    Generic
+      | e < 0 || e > 7 -> Exponent'
+      | otherwise -> Fixed'
+    Exponent -> Exponent'
+    Fixed -> Fixed') (is, e)
+  x' = doFmt fmt (floatToDigits (abs x))
 
 -- Based on "Printing Floating-Point Numbers Quickly and Accurately"
 -- by R.G. Burger and R.K. Dybvig in PLDI 96.
@@ -132,10 +142,10 @@ formatRealFloat fmt decs x
 --
 --      (3) @0 <= di <= base-1@
 
-floatToDigits :: (RealFloat a) => a -> ([Int], Int)
-{-# SPECIALIZE floatToDigits :: Float -> ([Int], Int) #-}
-{-# SPECIALIZE floatToDigits :: Double -> ([Int], Int) #-}
-floatToDigits 0 = ([0], 0)
+floatToDigits :: (RealFloat a) => a -> (NonEmpty Int, Int)
+{-# SPECIALIZE floatToDigits :: Float -> (NonEmpty Int, Int) #-}
+{-# SPECIALIZE floatToDigits :: Double -> (NonEmpty Int, Int) #-}
+floatToDigits 0 = (pure 0, 0)
 floatToDigits x =
  let
   (f0, e0) = decodeFloat x
@@ -210,19 +220,19 @@ floatToDigits x =
     mDnN' = mDnN * 10
    in
    case (rn' < mDnN', rn' + mUpN' > sN) of
-    (True,  False) -> dn : ds
-    (False, True)  -> dn+1 : ds
-    (True,  True)  -> if rn' * 2 < sN then dn : ds else dn+1 : ds
-    (False, False) -> gen (dn:ds) rn' sN mUpN' mDnN'
+    (True,  False) -> DNE.snoc' ds $ dn
+    (False, True)  -> DNE.snoc' ds $ dn+1
+    (True,  True)  -> DNE.snoc' ds $ if rn' * 2 < sN then dn else dn+1
+    (False, False) -> gen (DL.snoc ds dn) rn' sN mUpN' mDnN'
 
-  rds =
+  ds =
    if k >= 0 then
-      gen [] r (s * expt 10 k) mUp mDn
+      gen empty r (s * expt 10 k) mUp mDn
    else
      let bk = expt 10 (-k) in
-     gen [] (r * bk) s (mUp * bk) (mDn * bk)
+     gen empty (r * bk) s (mUp * bk) (mDn * bk)
  in
- (map fromIntegral (reverse rds), k)
+ (fromIntegral <$> DNE.toNonEmpty ds, k)
 
 -- Exponentiation with a cache for the most common numbers.
 minExpt, maxExpt :: Int

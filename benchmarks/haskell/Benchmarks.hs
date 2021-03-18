@@ -15,6 +15,7 @@ import qualified Benchmarks.EncodeUtf8 as EncodeUtf8
 import qualified Benchmarks.Equality as Equality
 import qualified Benchmarks.FileRead as FileRead
 import qualified Benchmarks.FoldLines as FoldLines
+import qualified Benchmarks.Format.RealFloat as FormatRealFloat
 import qualified Benchmarks.Mul as Mul
 import qualified Benchmarks.Pure as Pure
 import qualified Benchmarks.ReadNumbers as ReadNumbers
@@ -61,6 +62,7 @@ benchmarks = do
         , Search.benchmark (tf "russian.txt") "принимая"
         , Stream.benchmark (tf "russian.txt")
         , WordFrequencies.benchmark (tf "russian.txt")
+        , pure FormatRealFloat.benchmark
         ]
 
     -- Program-like benchmarks

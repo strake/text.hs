@@ -38,8 +38,10 @@ executable text-benchmarks
                   criterion >= 0.10.0.0,
                   deepseq,
                   directory,
+                  dlist >= 0.10,
                   filepath,
                   ghc-prim,
+                  hashable,
                   integer-gmp,
                   stringsearch,
                   transformers,
@@ -64,6 +66,7 @@ executable text-benchmarks
     Benchmarks.Equality
     Benchmarks.FileRead
     Benchmarks.FoldLines
+    Benchmarks.Format.RealFloat
     Benchmarks.Mul
     Benchmarks.Programs.BigTable
     Benchmarks.Programs.Cut
